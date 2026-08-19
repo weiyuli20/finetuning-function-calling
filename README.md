@@ -1,29 +1,35 @@
 # SFT → GRPO for Tool Calling
 
-A two-stage fine-tuning project investigating whether **Group Relative Policy Optimization (GRPO)** can improve tool-calling performance after **Supervised Fine-Tuning (SFT)**.
+A two-stage fine-tuning project investigating whether **Supervised Fine-Tuning (SFT)** followed by **Group Relative Policy Optimization (GRPO)** can improve tool-calling capabilities in a **sub-billion-parameter language model**.
 
 **Pipeline:**
 
 ```text
-Base Model → SFT → GRPO
+Qwen2.5-0.5B-Instruct → SFT → GRPO
 ```
 
-The project uses the **Salesforce xLAM-60k** dataset and evaluates tool selection, argument generation, formatting, and exact tool-call correctness.
+The base model is **`Qwen/Qwen2.5-0.5B-Instruct`**, a 0.5B-parameter instruction-tuned model.
+
+The project uses the **Salesforce xLAM-60k** tool-calling dataset and evaluates tool selection, argument generation, formatting, schema compliance, and exact tool-call correctness.
 
 ## Approach
 
-### 1. SFT
+### 1. Base Model
 
-SFT trains the model on gold-standard tool-calling examples to learn:
+The pretrained instruction-tuned Qwen model is evaluated directly on the tool-calling task to establish a baseline.
+
+### 2. SFT
+
+The base model is fine-tuned on gold-standard tool-calling examples to learn:
 
 * Tool selection
 * Argument generation
 * JSON formatting
 * Schema compliance
 
-### 2. GRPO
+### 3. GRPO
 
-GRPO starts **from the trained SFT checkpoint** and further optimizes the model using tool-calling rewards, targeting:
+GRPO starts **from the SFT checkpoint** and further optimizes tool-calling behavior using task-specific rewards targeting:
 
 * Correct tool selection
 * Correct arguments
@@ -32,35 +38,71 @@ GRPO starts **from the trained SFT checkpoint** and further optimizes the model 
 
 ## Results
 
-Evaluation was performed on **600 examples**.
+Evaluation was performed on the same **600-example evaluation set**.
 
-| Metric                        |    SFT | SFT + GRPO |   Change |
-| ----------------------------- | -----: | ---------: | -------: |
-| Correct Tool                  | 92.67% | **94.17%** | +1.50 pp |
-| Exact Match                   | 60.67% | **64.17%** | +3.50 pp |
-| Tool-Call Accuracy            | 95.61% | **96.10%** | +0.49 pp |
-| Exact Tool-Call Accuracy      | 70.24% | **72.98%** | +2.73 pp |
-| Argument Field Accuracy       | 79.98% | **83.12%** | +3.14 pp |
-| Schema Validity               | 99.67% | **99.67%** |        — |
-| Hallucinated Fields / Example |  0.272 |  **0.260** |   −4.29% |
-| Avg. Completion Tokens        | 153.76 | **138.37** |  −10.00% |
+| Metric                        |   Base |    SFT | SFT + GRPO |
+| ----------------------------- | -----: | -----: | ---------: |
+| Correct Tool                  | 81.67% | 92.67% | **94.17%** |
+| Exact Match                   | 44.50% | 60.67% | **64.17%** |
+| Tool-Call Accuracy            | 75.76% | 95.61% | **96.10%** |
+| Exact Tool-Call Accuracy      | 51.46% | 70.24% | **72.98%** |
+| Argument Field Accuracy       | 67.70% | 79.98% | **83.12%** |
+| Parseable JSON                | 86.83% | 99.67% | **99.67%** |
+| Correct Format                | 80.33% | 99.67% | **99.67%** |
+| Schema Validity               | 94.83% | 99.67% | **99.67%** |
+| Hallucinated Fields / Example |  0.508 |  0.272 |  **0.260** |
+| Avg. Completion Tokens        | 157.47 | 153.76 | **138.37** |
 
-### Why GRPO Was Not a Huge Improvement
+### Improvement Over Base
 
-The SFT checkpoint was already very strong, achieving **99.67% schema validity** and **92.67% correct tool selection**. Therefore, GRPO had limited headroom to improve the basic tool-calling behavior.
+SFT provides the major performance improvement:
 
-Since GRPO was initialized from SFT, its role was primarily to optimize **remaining semantic errors**, such as incorrect arguments, tool selection mistakes, and hallucinated fields.
+* **Correct Tool:** 81.67% → 92.67% (**+11.00 pp**)
+* **Exact Match:** 44.50% → 60.67% (**+16.17 pp**)
+* **Exact Tool-Call Accuracy:** 51.46% → 70.24% (**+18.78 pp**)
+* **Argument Accuracy:** 67.70% → 79.98% (**+12.28 pp**)
+* **Parseable JSON:** 86.83% → 99.67% (**+12.84 pp**)
 
-The largest gains were therefore in fine-grained metrics:
+GRPO then provides additional improvements on top of SFT:
 
-* **+3.50 pp** Exact Match
-* **+3.14 pp** Argument Accuracy
-* **+2.73 pp** Exact Tool-Call Accuracy
+* **Correct Tool:** +1.50 pp
+* **Exact Match:** +3.50 pp
+* **Exact Tool-Call Accuracy:** +2.73 pp
+* **Argument Accuracy:** +3.14 pp
+* **Hallucinated Fields:** −4.29%
+* **Completion Length:** −10.00%
 
-This suggests that GRPO works well as a **second-stage optimization method after SFT**, rather than as a replacement for SFT.
+## Why Was GRPO's Improvement Smaller?
+
+The smaller GRPO improvement is expected because **SFT had already transformed the base model into a strong tool-calling model**.
+
+SFT increased correct tool selection from **81.67% to 92.67%** and exact tool-call accuracy from **51.46% to 70.24%**.
+
+By the time GRPO started, the model already had:
+
+* 99.67% schema validity
+* 99.67% correct formatting
+* 92.67% correct tool selection
+* 95.61% tool-call accuracy
+
+Therefore, GRPO had much less headroom. Its role was primarily to refine **harder semantic errors**, particularly argument correctness and exact tool-call matching.
 
 ## Key Takeaway
 
-> **SFT learns the tool-calling behavior; GRPO refines the remaining correctness errors.**
+> **SFT teaches the 0.5B model how to perform tool calling; GRPO refines the remaining errors.**
 
-The experiment shows that GRPO can provide measurable improvements even when starting from a highly capable SFT checkpoint, although the gains are naturally smaller because the SFT model has already solved most of the task.
+The experiment demonstrates a clear progression:
+
+```text
+Base
+  │
+  │ SFT
+  ▼
+Large improvement
+  │
+  │ GRPO
+  ▼
+Smaller but targeted improvement
+```
+
+For this task, **SFT is responsible for the majority of the performance gain**, while **GRPO provides additional improvements in fine-grained tool-call correctness**.
