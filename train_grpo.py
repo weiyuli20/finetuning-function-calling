@@ -61,8 +61,8 @@ def parse_args():
     p.add_argument("--max_completion_length", type=int, default=512)
     p.add_argument("--num_generations", type=int, default=4,
                    help="Number of completions per prompt (GRPO group size)")
-    p.add_argument("--lora_r", type=int, default=16)
-    p.add_argument("--lora_alpha", type=int, default=32)
+    p.add_argument("--lora_r", type=int, default=32)
+    p.add_argument("--lora_alpha", type=int, default=64)
     p.add_argument("--save_steps", type=int, default=200)
     p.add_argument("--eval_steps", type=int, default=200,
                    help="Run reward-based eval every N steps (if --eval_file set)")

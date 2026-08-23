@@ -54,25 +54,56 @@ def _extract_json_objects(text: str) -> list[dict]:
 
 
 def _normalize_value(v: Any) -> str:
+    if isinstance(v, dict):
+        return json.dumps(v, sort_keys=True, separators=(",", ":")).lower()
+
     if isinstance(v, list):
-        return json.dumps(sorted([str(x).lower() for x in v]))
+        return json.dumps(
+            sorted(str(x).lower() for x in v),
+            separators=(",", ":"),
+        )
+
+    if isinstance(v, bool):
+        return str(v).lower()
+
+    if v is None:
+        return "null"
+
     return str(v).lower().strip()
 
 
 def _tool_call_match(predicted: dict, expected: dict) -> bool:
+    if not isinstance(predicted, dict) or not isinstance(expected, dict):
+        return False
+
     if predicted.get("name") != expected.get("name"):
         return False
+
     pred_args = predicted.get("arguments", {})
     exp_args = expected.get("arguments", {})
+
+    if not isinstance(pred_args, dict):
+        return False
+
+    if not isinstance(exp_args, dict):
+        return False
+
     for key, val in exp_args.items():
         if key not in pred_args:
             return False
+
         if _normalize_value(pred_args[key]) != _normalize_value(val):
             return False
+
     return True
 
 
 def format_reward(prompts, completions, **kwargs) -> list[float]:
+    # for i, completion in enumerate(completions):
+    #             print("\n" + "=" * 80)
+    #             print(f"GENERATED COMPLETION {i + 1}")
+    #             print("=" * 80)
+    #             print(completion)
     rewards = []
     for comp in completions:
         text = _get_content(comp)
@@ -122,7 +153,7 @@ def tool_name_recall_reward(prompts, completions, answers, **kwargs) -> list[flo
             continue
 
         if not gt_calls:
-            rewards.append(1.0)  # vacuously correct
+            rewards.append(1.0)  
             continue
 
         gt_names = [c.get("name") for c in gt_calls]
@@ -246,4 +277,440 @@ def count_match_reward(prompts, completions, answers, **kwargs) -> list[float]:
             rewards.append(0.0)
         else:
             rewards.append(-0.5)
+    return rewards
+
+def required_args_reward(
+    prompts, completions, answers, **kwargs
+):
+    
+    rewards = []
+
+    for comp, ans_raw in zip(completions, answers):
+        text = _get_content(comp)
+        predicted = _extract_json_objects(text)
+
+        try:
+            if isinstance(ans_raw, str):
+                gt_calls = json.loads(ans_raw)
+            else:
+                gt_calls = list(ans_raw)
+        except Exception:
+            rewards.append(0.0)
+            continue
+
+        if not gt_calls:
+            rewards.append(1.0)
+            continue
+
+        if not predicted:
+            rewards.append(0.0)
+            continue
+
+        scores = []
+
+        for gt in gt_calls:
+            gt_name = gt.get("name")
+            gt_args = gt.get("arguments", {})
+
+            if not isinstance(gt_args, dict):
+                gt_args = {}
+
+            candidates = [
+                p for p in predicted
+                if p.get("name") == gt_name
+                and isinstance(p.get("arguments"), dict)
+            ]
+
+            if not candidates:
+                scores.append(0.0)
+                continue
+
+            best_score = 0.0
+
+            for pred in candidates:
+                pred_args = pred.get("arguments", {})
+
+                if not gt_args:
+                    score = 1.0
+                else:
+                    present = sum(
+                        1 for key in gt_args
+                        if key in pred_args
+                    )
+                    score = present / len(gt_args)
+
+                best_score = max(best_score, score)
+
+            scores.append(best_score)
+
+        rewards.append(sum(scores) / len(scores))
+
+    return rewards
+
+
+def extra_args_reward(
+    prompts, completions, answers, **kwargs
+):
+    
+    rewards = []
+
+    for comp, ans_raw in zip(completions, answers):
+        text = _get_content(comp)
+        predicted = _extract_json_objects(text)
+
+        try:
+            if isinstance(ans_raw, str):
+                gt_calls = json.loads(ans_raw)
+            else:
+                gt_calls = list(ans_raw)
+        except Exception:
+            rewards.append(0.0)
+            continue
+
+        if not gt_calls:
+            rewards.append(1.0 if not predicted else -1.0)
+            continue
+
+        if not predicted:
+            rewards.append(0.0)
+            continue
+
+        total_extra = 0
+        total_pred_args = 0
+
+        allowed_args = {}
+
+        for gt in gt_calls:
+            name = gt.get("name")
+            args = gt.get("arguments", {})
+
+            if not isinstance(args, dict):
+                args = {}
+
+            allowed_args.setdefault(name, set()).update(args.keys())
+
+        for pred in predicted:
+            name = pred.get("name")
+            args = pred.get("arguments", {})
+
+            if not isinstance(args, dict):
+                total_extra += 1
+                continue
+
+            pred_keys = set(args.keys())
+            total_pred_args += len(pred_keys)
+
+            allowed = allowed_args.get(name, set())
+
+            total_extra += len(pred_keys - allowed)
+
+        if total_pred_args == 0:
+            rewards.append(1.0)
+            continue
+
+        extra_ratio = total_extra / total_pred_args
+
+        reward = 1.0 - 2.0 * extra_ratio
+
+        rewards.append(max(-1.0, min(1.0, reward)))
+
+    return rewards
+
+
+def argument_type_reward(
+    prompts, completions, answers, **kwargs
+):
+
+    def json_type(value):
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, (int, float)):
+            return "number"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, list):
+            return "list"
+        if isinstance(value, dict):
+            return "object"
+        return "other"
+
+    rewards = []
+
+    for comp, ans_raw in zip(completions, answers):
+        text = _get_content(comp)
+        predicted = _extract_json_objects(text)
+
+        try:
+            if isinstance(ans_raw, str):
+                gt_calls = json.loads(ans_raw)
+            else:
+                gt_calls = list(ans_raw)
+        except Exception:
+            rewards.append(0.0)
+            continue
+
+        if not gt_calls:
+            rewards.append(1.0)
+            continue
+
+        if not predicted:
+            rewards.append(0.0)
+            continue
+
+        scores = []
+
+        for gt in gt_calls:
+            gt_name = gt.get("name")
+            gt_args = gt.get("arguments", {})
+
+            if not isinstance(gt_args, dict):
+                gt_args = {}
+
+            candidates = [
+                p for p in predicted
+                if p.get("name") == gt_name
+                and isinstance(p.get("arguments"), dict)
+            ]
+
+            if not candidates:
+                scores.append(0.0)
+                continue
+
+            best_score = 0.0
+
+            for pred in candidates:
+                pred_args = pred.get("arguments", {})
+
+                if not gt_args:
+                    best_score = max(best_score, 1.0)
+                    continue
+
+                comparable = [
+                    key for key in gt_args
+                    if key in pred_args
+                ]
+
+                if not comparable:
+                    score = 0.0
+                else:
+                    correct_types = sum(
+                        1
+                        for key in comparable
+                        if json_type(pred_args[key])
+                        == json_type(gt_args[key])
+                    )
+
+                    score = correct_types / len(gt_args)
+
+                best_score = max(best_score, score)
+
+            scores.append(best_score)
+
+        rewards.append(sum(scores) / len(scores))
+
+    return rewards
+
+
+def tool_order_reward(
+    prompts, completions, answers, **kwargs
+):
+    
+    rewards = []
+
+    for comp, ans_raw in zip(completions, answers):
+        text = _get_content(comp)
+        predicted = _extract_json_objects(text)
+
+        try:
+            if isinstance(ans_raw, str):
+                gt_calls = json.loads(ans_raw)
+            else:
+                gt_calls = list(ans_raw)
+        except Exception:
+            rewards.append(0.0)
+            continue
+
+        gt_names = [
+            c.get("name")
+            for c in gt_calls
+            if isinstance(c, dict)
+        ]
+
+        pred_names = [
+            p.get("name")
+            for p in predicted
+            if isinstance(p, dict)
+            and isinstance(p.get("name"), str)
+        ]
+
+        if len(gt_names) <= 1:
+            rewards.append(1.0)
+            continue
+
+        total_pairs = 0
+        correct_pairs = 0
+
+        for i in range(len(gt_names)):
+            for j in range(i + 1, len(gt_names)):
+                first = gt_names[i]
+                second = gt_names[j]
+
+                if first not in pred_names or second not in pred_names:
+                    continue
+
+                first_idx = pred_names.index(first)
+                second_idx = pred_names.index(second)
+
+                total_pairs += 1
+
+                if first_idx < second_idx:
+                    correct_pairs += 1
+
+        if total_pairs == 0:
+            rewards.append(0.0)
+        else:
+            rewards.append(correct_pairs / total_pairs)
+
+    return rewards
+
+
+def tool_necessity_reward(
+    prompts, completions, answers, **kwargs
+):
+
+    rewards = []
+
+    for comp, ans_raw in zip(completions, answers):
+        text = _get_content(comp)
+        predicted = _extract_json_objects(text)
+
+        try:
+            if isinstance(ans_raw, str):
+                gt_calls = json.loads(ans_raw)
+            else:
+                gt_calls = list(ans_raw)
+        except Exception:
+            rewards.append(0.0)
+            continue
+
+        expected_tools = len(gt_calls) > 0
+        predicted_tools = len(predicted) > 0
+
+        if expected_tools and predicted_tools:
+            rewards.append(1.0)
+
+        elif expected_tools and not predicted_tools:
+            rewards.append(-1.0)
+
+        elif not expected_tools and not predicted_tools:
+            rewards.append(1.0)
+
+        else:
+            rewards.append(-1.0)
+
+    return rewards
+
+
+def no_tool_reward(
+    prompts, completions, answers, **kwargs
+):
+
+    rewards = []
+
+    for comp, ans_raw in zip(completions, answers):
+        text = _get_content(comp)
+        predicted = _extract_json_objects(text)
+
+        try:
+            if isinstance(ans_raw, str):
+                gt_calls = json.loads(ans_raw)
+            else:
+                gt_calls = list(ans_raw)
+        except Exception:
+            rewards.append(0.0)
+            continue
+
+        if len(gt_calls) == 0:
+            rewards.append(1.0 if len(predicted) == 0 else -1.0)
+        else:
+            rewards.append(0.0)
+
+    return rewards
+
+def argument_value_reward(
+    prompts, completions, answers, **kwargs
+):
+
+    rewards = []
+
+    for comp, ans_raw in zip(completions, answers):
+        text = _get_content(comp)
+        predicted = _extract_json_objects(text)
+
+        try:
+            if isinstance(ans_raw, str):
+                gt_calls = json.loads(ans_raw)
+            else:
+                gt_calls = list(ans_raw)
+        except Exception:
+            rewards.append(0.0)
+            continue
+
+        if not gt_calls:
+            rewards.append(1.0)
+            continue
+
+        if not predicted:
+            rewards.append(0.0)
+            continue
+
+        call_scores = []
+
+        for gt in gt_calls:
+            gt_name = gt.get("name")
+            gt_args = gt.get("arguments", {})
+
+            if not isinstance(gt_args, dict):
+                gt_args = {}
+
+            candidates = [
+                p for p in predicted
+                if p.get("name") == gt_name
+                and isinstance(p.get("arguments"), dict)
+            ]
+
+            if not candidates:
+                call_scores.append(0.0)
+                continue
+
+            best_score = 0.0
+
+            for pred in candidates:
+                pred_args = pred.get("arguments", {})
+
+                if not gt_args:
+                    score = 1.0
+                else:
+                    correct = 0
+
+                    for key, expected_value in gt_args.items():
+                        if key not in pred_args:
+                            continue
+
+                        if (
+                            _normalize_value(pred_args[key])
+                            == _normalize_value(expected_value)
+                        ):
+                            correct += 1
+
+                    score = correct / len(gt_args)
+
+                best_score = max(best_score, score)
+
+            call_scores.append(best_score)
+
+        rewards.append(sum(call_scores) / len(call_scores))
+
     return rewards
