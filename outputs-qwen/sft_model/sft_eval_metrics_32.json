@@ -1,0 +1,17 @@
+{
+  "num_examples": 2000,
+  "completion_percentage": 99.0,
+  "nonempty_response_percentage": 100.0,
+  "parseable_json_percentage": 99.0,
+  "correct_format_percentage": 99.0,
+  "schema_validity_rate": 0.99,
+  "correct_tool_percentage": 91.0,
+  "exact_match_percentage": 78.0,
+  "tool_call_accuracy": 0.95,
+  "exact_tool_call_accuracy": 0.80625,
+  "argument_field_accuracy": 0.8705882352941177,
+  "avg_hallucinated_fields_per_example": 0.15,
+  "avg_completion_tokens": 749.64,
+  "total_gold_tool_calls": 3308,
+  "total_predicted_tool_calls": 3298
+}
