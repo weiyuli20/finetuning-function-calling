@@ -8,14 +8,7 @@ from peft import LoraConfig, PeftModel
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import GRPOConfig, GRPOTrainer, SFTConfig, SFTTrainer
 
-from rewards_xlam import (
-    format_reward,
-    schema_validity_reward,
-    tool_name_recall_reward,
-    argument_accuracy_reward,
-    hallucination_reward,
-    count_match_reward,
-)
+from rewards_xlam import *
 
 
 SYSTEM_PROMPT = (
@@ -74,29 +67,38 @@ def parse_args():
 
     p.add_argument("--sft_epochs", type=int, default=3)
     p.add_argument("--sft_lr", type=float, default=2e-4)
-    p.add_argument("--sft_max_seq_length", type=int, default=2048)
+    p.add_argument("--sft_max_seq_length", type=int, default=512)
 
     p.add_argument("--grpo_epochs", type=int, default=1)
     p.add_argument("--grpo_lr", type=float, default=5e-6)
     p.add_argument("--max_prompt_length", type=int, default=512)
     p.add_argument("--max_completion_length", type=int, default=512)
-    p.add_argument("--num_generations", type=int, default=4)
+    p.add_argument("--num_generations", type=int, default=8)
 
-    p.add_argument("--batch_size", type=int, default=4)
-    p.add_argument("--grad_accum", type=int, default=4)
+    p.add_argument("--batch_size", type=int, default=2)
+    p.add_argument("--grad_accum", type=int, default=8)
     p.add_argument("--lora_r", type=int, default=16)
     p.add_argument("--lora_alpha", type=int, default=32)
     p.add_argument("--save_steps", type=int, default=100)
     p.add_argument("--eval_steps", type=int, default=500,
                    help="Evaluation frequency in steps (for both SFT and GRPO phases)")
-    p.add_argument("--warmup_ratio", type=float, default=0.05)
+    p.add_argument("--warmup_ratio", type=float, default=0.005)
+    p.add_argument("--grpo_temp", type=float, default=1.4)
 
-    p.add_argument("--w_format",      type=float, default=1.0)
-    p.add_argument("--w_schema",      type=float, default=1.0)
-    p.add_argument("--w_name_recall", type=float, default=2.0)
-    p.add_argument("--w_arg_acc",     type=float, default=3.0)
-    p.add_argument("--w_halluc",      type=float, default=1.5)
-    p.add_argument("--w_count",       type=float, default=1.0)
+    p.add_argument("--w_format",        type=float, default=1.0)
+    p.add_argument("--w_schema",        type=float, default=1.0)
+    p.add_argument("--w_name_recall",   type=float, default=2.0)
+    p.add_argument("--w_arg_acc",       type=float, default=3.0)
+    p.add_argument("--w_halluc",        type=float, default=1.5)
+    p.add_argument("--w_count",         type=float, default=1.0)
+
+    p.add_argument("--w_required_args", type=float, default=1.0)
+    p.add_argument("--w_extra_args",    type=float, default=0.5)
+    p.add_argument("--w_value_acc",     type=float, default=2.0)
+    p.add_argument("--w_type_acc",      type=float, default=0.5)
+    p.add_argument("--w_order",         type=float, default=0.5)
+    p.add_argument("--w_necessity",     type=float, default=1.0)
+
     return p.parse_args()
 
 
@@ -225,6 +227,36 @@ def run_grpo(args, raw_train, raw_eval, grpo_base_model):
             w(count_match_reward, args.w_count)
         )
 
+    if args.w_required_args > 0:
+        active_rewards.append(
+            w(required_args_reward, args.w_required_args)
+        )
+
+    if args.w_extra_args > 0:
+        active_rewards.append(
+            w(extra_args_reward, args.w_extra_args)
+        )
+
+    if args.w_value_acc > 0:
+        active_rewards.append(
+            w(argument_value_reward, args.w_value_acc)
+        )
+
+    if args.w_type_acc > 0:
+        active_rewards.append(
+            w(argument_type_reward, args.w_type_acc)
+        )
+
+    if args.w_order > 0:
+        active_rewards.append(
+            w(tool_order_reward, args.w_order)
+        )
+
+    if args.w_necessity > 0:
+        active_rewards.append(
+            w(tool_necessity_reward, args.w_necessity)
+        )
+
     print(f"[GRPO] Active reward functions: {len(active_rewards)}")
 
     print(f"[GRPO] Loading base model: {args.model_name}")
@@ -255,6 +287,8 @@ def run_grpo(args, raw_train, raw_eval, grpo_base_model):
         learning_rate=args.grpo_lr,
         lr_scheduler_type="cosine",
         warmup_steps=100,
+
+        temperature=args.grpo_temp,
 
         per_device_train_batch_size=args.batch_size,
         gradient_accumulation_steps=args.grad_accum,
