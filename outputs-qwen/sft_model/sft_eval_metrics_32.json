@@ -11,7 +11,7 @@
   "exact_tool_call_accuracy": 0.80625,
   "argument_field_accuracy": 0.8705882352941177,
   "avg_hallucinated_fields_per_example": 0.15,
-  "avg_completion_tokens": 749.64,
+  "avg_completion_tokens": 171.64,
   "total_gold_tool_calls": 3308,
   "total_predicted_tool_calls": 3298
 }
