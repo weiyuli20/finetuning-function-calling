@@ -10,9 +10,13 @@ def parse_args():
     p = argparse.ArgumentParser(description="Split xLAM dataset into train/eval/test")
     p.add_argument("--data_dir",    type=str,   default="data",
                    help="Directory to save the split JSONL files")
-    p.add_argument("--eval_ratio",  type=float, default=0.01,
-                   help="Fraction of data for eval (default: 5 %%)")
-    p.add_argument("--test_ratio",  type=float, default=0.9,
+    p.add_argument("--input_file", type=str,
+                   default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                        "xlam-function-calling-60k.json"),
+                   help="Path to the local xLAM JSON dataset")
+    p.add_argument("--eval_ratio",  type=float, default=0.05,
+                   help="Fraction of data for eval (default: 1 %%)")
+    p.add_argument("--test_ratio",  type=float, default=0.05,
                    help="Fraction of data for test (default: 5 %%)")
     p.add_argument("--seed",        type=int,   default=42,
                    help="Random seed for reproducibility")
@@ -28,8 +32,11 @@ def main():
     assert args.eval_ratio + args.test_ratio < 1.0, \
         "eval_ratio + test_ratio must be < 1.0"
 
-    print("[prepare] Loading Salesforce/xlam-function-calling-60k …")
-    raw = load_dataset("Salesforce/xlam-function-calling-60k", split="train")
+    if not os.path.isfile(args.input_file):
+        raise FileNotFoundError(f"Dataset file not found: {args.input_file}")
+
+    print(f"[prepare] Loading local dataset: {args.input_file}")
+    raw = load_dataset("json", data_files=args.input_file, split="train")
 
     if args.max_samples:
         raw = raw.select(range(min(args.max_samples, len(raw))))
@@ -92,3 +99,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+'''
+python prepare_dataset.py --max_samples 3000
+'''

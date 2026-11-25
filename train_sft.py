@@ -5,6 +5,7 @@ import os
 import torch
 from datasets import load_dataset, Dataset
 from peft import LoraConfig, PeftModel
+from swanlab.integration.transformers import SwanLabCallback
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import SFTConfig, SFTTrainer
 
@@ -91,7 +92,7 @@ def parse_args():
     p.add_argument(
         "--model_name",
         type=str,
-        default="Qwen/Qwen2.5-0.5B-Instruct",
+        default="Qwen2.5-0.5B-Instruct",
     )
 
     p.add_argument(
@@ -103,7 +104,7 @@ def parse_args():
     p.add_argument(
         "--train_file",
         type=str,
-        default=None,
+        default="data/xlam_train.jsonl",
         help=(
             "Path to train JSONL. "
             "If omitted, falls back to full HF dataset."
@@ -113,7 +114,7 @@ def parse_args():
     p.add_argument(
         "--eval_file",
         type=str,
-        default=None,
+        default="data/xlam_test.jsonl",
         help=(
             "Path to eval JSONL. "
             "If omitted, no eval is run during training."
@@ -153,25 +154,25 @@ def parse_args():
     p.add_argument(
         "--lora_r",
         type=int,
-        default=64,
+        default=16,
     )
 
     p.add_argument(
         "--lora_alpha",
         type=int,
-        default=128,
+        default=32,
     )
 
     p.add_argument(
         "--save_steps",
         type=int,
-        default=500,
+        default=30,
     )
 
     p.add_argument(
         "--eval_steps",
         type=int,
-        default=500,
+        default=30,
         help=(
             "Run evaluation every N steps "
             "(only if --eval_file is set)"
@@ -555,6 +556,7 @@ def main():
         peft_config=peft_config,
 
         processing_class=tokenizer,
+        callbacks=[SwanLabCallback()],
     )
 
     print("[SFT] Starting training …")
