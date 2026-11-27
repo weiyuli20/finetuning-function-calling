@@ -1,10 +1,12 @@
 import argparse
+import inspect
 import json
 import os
 
 import torch
 from datasets import load_dataset, Dataset
 from peft import LoraConfig
+from swanlab.integration.transformers import SwanLabCallback
 from transformers import AutoTokenizer
 from trl import GRPOConfig, GRPOTrainer
 
@@ -55,7 +57,7 @@ def parse_args():
                    help="Path to eval JSONL (e.g. data/xlam_eval.jsonl)")
     p.add_argument("--epochs", type=int, default=1)
     p.add_argument("--batch_size", type=int, default=4)
-    p.add_argument("--grad_accum", type=int, default=4)
+    p.add_argument("--grad_accum", type=int, default=16)
     p.add_argument("--learning_rate", type=float, default=5e-6)
     p.add_argument("--max_prompt_length", type=int, default=512)
     p.add_argument("--max_completion_length", type=int, default=512)
@@ -89,7 +91,9 @@ def main():
     args = parse_args()
 
     print(f"[GRPO] Loading tokenizer: {args.model_name}")
-    tokenizer = AutoTokenizer.from_pretrained(args.model_name, trust_remote_code=True)
+    tokenizer = AutoTokenizer.from_pretrained(
+        args.model_name, trust_remote_code=True, padding_side="left", truncation_side="left"
+    )
     tokenizer.pad_token = tokenizer.eos_token
 
     raw_train = load_split(args.train_file, hf_split="train")
@@ -132,6 +136,13 @@ def main():
     )
 
     do_eval = eval_dataset is not None
+    if "max_prompt_length" in inspect.signature(GRPOConfig).parameters:
+        prompt_config = {"max_prompt_length": args.max_prompt_length}
+    else:
+        prompt_config = {
+            "chat_template_kwargs": {"truncation": True, "max_length": args.max_prompt_length},
+        }
+
     training_args = GRPOConfig(
         output_dir=args.output_dir,
         learning_rate=args.learning_rate,
@@ -147,11 +158,11 @@ def main():
         save_total_limit=2,
         eval_strategy="steps" if do_eval else "no",
         eval_steps=args.eval_steps if do_eval else None,
-        max_prompt_length=args.max_prompt_length,
         max_completion_length=args.max_completion_length,
         num_generations=args.num_generations,
         remove_unused_columns=False,
         report_to="none",
+        **prompt_config,
     )
 
     trainer = GRPOTrainer(
@@ -160,6 +171,8 @@ def main():
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
+        processing_class=tokenizer,
+        callbacks=[SwanLabCallback()],
         peft_config=peft_config,
     )
 
@@ -174,3 +187,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+'''
+python train_grpo.py \
+  --model_name ./Qwen2.5-0.5B-Instruct \
+  --train_file data/xlam_train.jsonl \
+  --eval_file data/xlam_test.jsonl \
+
+
+'''

@@ -239,7 +239,7 @@ def hallucination_reward(prompts, completions, answers, **kwargs) -> list[float]
             pname = pred.get("name")
             args = pred.get("arguments", {})
 
-            if not isinstance(args, dict):
+            if not isinstance(pname, str) or not isinstance(args, dict):
                 penalty -= 0.1
                 continue
 
@@ -400,7 +400,7 @@ def extra_args_reward(
             pred_keys = set(args.keys())
             total_pred_args += len(pred_keys)
 
-            allowed = allowed_args.get(name, set())
+            allowed = allowed_args.get(name, set()) if isinstance(name, str) else set()
 
             total_extra += len(pred_keys - allowed)
 

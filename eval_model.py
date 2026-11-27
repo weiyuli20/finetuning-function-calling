@@ -36,6 +36,7 @@ def normalize_json(value: Any) -> Any:
 
 
 def extract_json(text: str):
+    '''格式匹配，匹配```json ... ```,并提取内容'''
     text = text.strip()
 
     fenced = re.fullmatch(r"\s*```json\s*(.*?)\s*```\s*", text, flags=re.DOTALL | re.IGNORECASE)
@@ -61,6 +62,9 @@ def extract_json(text: str):
 
 
 def is_valid_call_obj(obj: Any) -> bool:
+    '''
+    验证每一个函数调用结构是否合法
+    '''
     return (
         isinstance(obj, dict)
         and set(obj.keys()) == {"name", "arguments"}
@@ -360,3 +364,14 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+'''
+cd /home/dyyuser/lq/finetuning-function-calling
+
+CUDA_VISIBLE_DEVICES=2 python eval_model.py \
+  --model_name outputs/sft_grpo/grpo \
+  --eval_file data/xlam_eval.jsonl \
+  --output_file outputs/grpo_eval_metrics.json \
+  --predictions_file outputs/grpo_eval_predictions.jsonl
+
+'''

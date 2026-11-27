@@ -5,6 +5,7 @@ import os
 import torch
 from datasets import load_dataset, Dataset
 from peft import LoraConfig, PeftModel
+from swanlab.integration.transformers import SwanLabCallback
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from trl import GRPOConfig, GRPOTrainer, SFTConfig, SFTTrainer
 
@@ -161,6 +162,7 @@ def run_sft(args, raw_train, raw_eval, tokenizer) -> str:
         eval_dataset=sft_eval,
         peft_config=peft_config,
         tokenizer=tokenizer,
+        callbacks=[SwanLabCallback()],
     )
 
     trainer.train()
@@ -320,6 +322,7 @@ def run_grpo(args, raw_train, raw_eval, grpo_base_model):
         args=grpo_config,
         train_dataset=grpo_train,
         eval_dataset=grpo_eval,
+        callbacks=[SwanLabCallback()],
     )
 
     trainer.train()
@@ -367,3 +370,13 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+'''
+python train_sft_grpo.py \
+  --skip_sft \
+  --model_name ./Qwen2.5-0.5B-Instruct \
+  --sft_checkpoint outputs/sft_model \
+  --train_file data/xlam_grpo_train.jsonl \
+  --eval_file data/xlam_eval.jsonl \
+  --num_generations 4
+'''
